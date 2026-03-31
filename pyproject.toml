@@ -1,0 +1,27 @@
+[project]
+name = "brief-comm-sept24-flooding"
+version = "0.1.0"
+description = "Brief communication on the climatological outlier characteristics of the September 2024 flooding in Austria"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "cartopy>=0.25.0",
+    "gsa-colormaps",
+    "matplotlib>=3.10.8",
+    "netcdf4>=1.7.4",
+    "numpy>=2.4.1",
+    "pandas>=3.0.0",
+    "rioxarray>=0.20.0",
+    "scikit-learn>=1.8.0",
+    "seaborn>=0.13.2",
+    "tomli>=2.4.0",
+    "xarray>=2025.12.0",
+]
+
+[project.optional-dependencies]
+internal = [
+    "gsa-colormaps",
+]
+
+[tool.uv.sources]
+gsa-colormaps = { git = "ssh://git@gitlab.geosphere.at/klifofo/tools/gsa-colormaps.git" }

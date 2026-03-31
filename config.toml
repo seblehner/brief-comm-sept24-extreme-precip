@@ -1,0 +1,15 @@
+[GENERAL]
+YEAR_START = 1961
+YEAR_END = 2024
+
+[PATHS]
+DAT_DIR = "path/to/data/"
+FILE_RX5DAY = "SPARTACUS_RRhr_Rx5d_1960-2024_annual.nc"
+LOGAREA = "doc/area_affected.log"
+
+[CRS]
+EPSG = "3416"
+
+[PLOT]
+COMPOSITE = true
+TIMESERIES = true

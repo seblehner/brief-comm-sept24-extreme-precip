@@ -1,0 +1,39 @@
+cff-version: 1.2.0
+message: "If you use this software/dataset, please cite it as below."
+authors:
+- family-names: "Lehner"
+  given-names: "Sebastian"
+  orcid: "https://orcid.org/0000-0002-7562-8172"
+- family-names: "Schellander"
+  given-names: "Harald"
+  orcid: "https://orcid.org/0000-0001-7661-287X"
+- family-names: "Schlögl"
+  given-names: "Matthias"
+  orcid: "https://orcid.org/0000-0002-4357-523X"
+title: "Brief communication: Contextualizing the September 2024 extreme precipitation in Austria within the climatological record"
+version: 0.1.0
+doi: 10.5281/zenodo.19346127
+date-released: 2026-03-31
+url: "https://github.com/github-linguist/linguist"
+preferred-citation:
+  type: article
+  authors:
+  - family-names: "Lehner"
+    given-names: "Sebastian"
+    orcid: "https://orcid.org/0000-0002-7562-8172"
+  - family-names: "Schellander"
+    given-names: "Harald"
+    orcid: "https://orcid.org/0000-0001-7661-287X"
+  - family-names: "Schellander-Gorgas"
+    given-names: "Theresa"
+    orcid: "https://orcid.org/0000-0003-3598-2932"
+  - family-names: "Schlögl"
+    given-names: "Matthias"
+    orcid: "https://orcid.org/0000-0002-4357-523X"
+  - family-names: "Haslinger"
+    given-names: "Klaus"
+    orcid: "https://orcid.org/0000-0003-2237-9894"
+  doi: "10.5194/egusphere-2026-1825"
+  journal: "EGUsphere"
+  title: "Brief communication: Contextualizing the September 2024 extreme precipitation in Austria within the climatological record"
+  year: 2026
