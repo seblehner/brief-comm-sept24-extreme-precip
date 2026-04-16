@@ -458,7 +458,7 @@ def plot_timeseries(
 
         ax1.bar(years[:-1], ts.iloc[:-1], color="C0", width=0.8)
         ax1.bar(years[-1], ts.iloc[-1], color="C1", width=0.8, label="2024")
-        ax1.set_title(f"Station: {ts.name}")
+        ax1.set_title(f"Station: {ts.name.split('_')[0]}")
         ax1.set_ylabel("Rx5day [mm]")
         ax1.grid(linewidth=0.5)
         ax1.set_xlim(1900, 2026)
@@ -484,7 +484,7 @@ def plot_timeseries(
 
         rp2024 = rp["rp_obs"].max()
         rl2024 = rp["rl_obs"].max()
-        ax2.scatter(x=rp2024, y=rl2024, s=60, marker="*", color="C1", zorder=20)
+        ax2.scatter(x=rp2024, y=rl2024, color="C1", zorder=20)
         mod_rp_2024 = mod_rp["rp_median"].max()
         ax2.set_title(f"Estimated return period for 2024: {mod_rp_2024:.0f} years")
         ax2.set_ylabel("")
@@ -592,6 +592,7 @@ if __name__ == "__main__":
         dfrl_list = []
         mod_obs_list = []
         emp_obs_list = []
+        exceedances_list = []
         for stationname, content in rls.items():
             dfrl_iter = pd.DataFrame(content["rls"])
             dfrl_list.append(dfrl_iter)
@@ -599,13 +600,18 @@ if __name__ == "__main__":
             mod_obs_list.append(dfmo_iter)
             dfeo_iter = pd.DataFrame(content["empirical_obs"])
             dfeo_iter["station"] = stationname
+            dfexceedances_iter = pd.DataFrame(content["empirical_obs_exc"])
+            dfexceedances_iter["station"] = stationname
             emp_obs_list.append(dfeo_iter)
+            exceedances_list.append(dfexceedances_iter)
         dfrl = pd.concat(dfrl_list, ignore_index=True)
         dfmo = pd.concat(mod_obs_list, ignore_index=True)
         dfeo = pd.concat(emp_obs_list, ignore_index=True)
+        dfexceedances = pd.concat(exceedances_list, ignore_index=True)
         dfrl.to_csv(str(Path(data_dir, "rls.csv")), index=False)
         dfmo.to_csv(str(Path(data_dir, "modeled_obs.csv")), index=False)
         dfeo.to_csv(str(Path(data_dir, "empirical_obs.csv")), index=False)
+        dfexceedances.to_csv(str(Path(data_dir, "empirical_obs_exc.csv")), index=False)
 
         df["date"] = pd.to_datetime(df["datum"], format="%d.%m.%Y")
         dfpivot = df.pivot(index="date", columns="name_id", values="nied [mm]")
@@ -645,4 +651,4 @@ if __name__ == "__main__":
             "Reichenau an der Rax_10511",
         ]
 
-        plot_timeseries(rx5day_year, dfeo, dfrl, dfmo, cols=station_plots)
+        plot_timeseries(rx5day_year, dfexceedances, dfrl, dfmo, cols=station_plots)
