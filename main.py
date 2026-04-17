@@ -642,7 +642,7 @@ if __name__ == "__main__":
                 f"{station}: \t\t {rx5day_year[station].dropna().index[-1].year - rx5day_year[station].dropna().index[0].year + 1}"
                 f" \t\t {dfmo.query(f'station == "{station}"')['rp_median'].max():1.0f}"
                 f" ({dfmo.query(f'station == "{station}"')['rp_lower_ci95'].max():1.0f}"
-                f"–{dfmo.query(f'station == "{station}"')['rp_upper_ci95'].max():1.0f})"
+                f", {dfmo.query(f'station == "{station}"')['rp_upper_ci95'].max():1.0f})"
             )
         print("#" * 30)
         station_plots = [
