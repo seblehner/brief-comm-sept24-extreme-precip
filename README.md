@@ -40,8 +40,8 @@ Data sourced from:
     - `[5625,5601,5604,5606,5607,5609,4080,4081,7110,10510,10511,6540,5410,5412,7000,7001,7002,1730,3520]`
     - Note that some stations have multiple IDs due to being slightly relocated over time. The latest ID is used for indexing.
 - Gridded data (SPARTACUS):
-    - Reference paper: https://doi.org/10.60669/m6w8-s545,
-    - https://doi.org/10.60669/m6w8-s545
+    - Reference paper: https://doi.org/10.1007/s00704-017-2093-x,
+    - https://doi.org/10.60669/5cqg-p427
 - Persistent archive for processed data:
     - https://doi.org/10.5281/zenodo.19346127
 

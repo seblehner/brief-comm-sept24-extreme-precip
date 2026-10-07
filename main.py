@@ -4,15 +4,15 @@ from types import SimpleNamespace
 
 import cartopy
 import cartopy.crs as ccrs
+import cartopy.io.shapereader as shpreader
 import matplotlib
 import matplotlib as mpl
-import matplotlib.font_manager as font_manager
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import rioxarray
 import tomli
 import xarray as xr
+from matplotlib import font_manager
 
 # internal library for spartacus cmaps
 try:
@@ -77,6 +77,17 @@ stationnum2rank = {
     "7002": "8",
     "1730": "9",
     "3520": "10",
+}
+
+
+# area of interest and projection for the synoptic overview map (Europe)
+SYNOPTIC_EXTENT = [-12.0, 40.0, 34.0, 63.0]
+SYNOPTIC_PROJ = {
+    "projection": cartopy.crs.LambertConformal(
+        central_longitude=14,
+        central_latitude=50,
+        standard_parallels=(40, 60),
+    )
 }
 
 
@@ -150,7 +161,6 @@ def configure_font():
         print(
             f"Font '{_climind_preferred_font}' not found in system fonts. Plots will use a fallback sans-serif font until it's installed."
         )
-    return None
 
 
 def get_config(conf_file: str = "config.toml", out_type: str = "namespace") -> dict:
@@ -221,12 +231,257 @@ def add_cartopy_styling(
     return gl
 
 
+def load_era5_field(
+    file_: str, varname: str, date: str, extent: list[float], margin: float = 15.0
+) -> xr.DataArray:
+    """Load a single day of an ERA5 field and cut it to the area of interest.
+
+    ERA5 is stored on a 0–360° longitude grid with decreasing latitudes, so
+    longitudes are shifted to -180–180° and the latitude slice is reversed.
+    The cutout is padded by 'margin' degrees so that the projected map extent
+    is fully covered by data.
+
+    Args:
+        file_ (str): path to the ERA5 netCDF file
+        varname (str): name of the variable to read (e.g. 'z', 'tcwv')
+        date (str): date to select, e.g. '2024-09-14'
+        extent (list[float]): [lon_min, lon_max, lat_min, lat_max] in degrees
+        margin (float, optional): padding around the extent in degrees.
+            Defaults to 15.0.
+
+    Returns:
+        xr.DataArray: 2D field (latitude, longitude) for the requested date
+    """
+    lon_min, lon_max, lat_min, lat_max = extent
+    xda = xr.open_dataset(file_)[varname].sel(time=date).squeeze(drop=True)
+    xda = xda.assign_coords(longitude=(((xda["longitude"] + 180) % 360) - 180)).sortby(
+        "longitude"
+    )
+    xda = xda.sel(
+        longitude=slice(lon_min - margin, lon_max + margin),
+        latitude=slice(lat_max + margin, lat_min - margin),
+    )
+    return xda.load()
+
+
+def get_country_geometry(country: str = "Austria"):
+    """Return the Natural Earth (10m) polygon of a country.
+
+    Args:
+        country (str, optional): country name as in the 'ADMIN' attribute.
+            Defaults to "Austria".
+
+    Returns:
+        shapely geometry or None: country outline, None if the country is
+            not found in the shapefile
+    """
+    shpfile = shpreader.natural_earth(
+        resolution="10m", category="cultural", name="admin_0_countries"
+    )
+    for record in shpreader.Reader(shpfile).records():
+        if record.attributes.get("ADMIN") == country:
+            return record.geometry
+    print(f"Country '{country}' not found in Natural Earth shapefile.")
+    return None
+
+
+def plt_synoptic_map(
+    xda_z500: xr.DataArray,
+    xda_tcwv: xr.DataArray,
+    ax_: matplotlib.axes.Axes | None = None,
+    extent: list[float] = SYNOPTIC_EXTENT,
+    date_label: str = "2024-09-14",
+    titlestr: str = "Synoptic situation",
+    subplotnum: str | None = None,
+    clabel: str = "Total column water vapour [kg m$^{-2}$]",
+    savefile: str | None = None,
+) -> matplotlib.axes.Axes:
+    """Plot 500 hPa geopotential height (contours) over total column water
+    vapour (shading) for one day.
+
+    Args:
+        xda_z500 (xr.DataArray): geopotential at 500 hPa [m2 s-2]
+        xda_tcwv (xr.DataArray): total column water vapour [kg m-2]
+        ax_ (matplotlib.axes.Axes | None, optional): axis to draw into. If None
+            a standalone figure is created. Defaults to None.
+        extent (list[float], optional): [lon_min, lon_max, lat_min, lat_max].
+            Defaults to SYNOPTIC_EXTENT.
+        date_label (str, optional): date shown in the upper right box.
+        titlestr (str, optional): axis title.
+        subplotnum (str | None, optional): subplot label, e.g. 'a)'. Defaults to None.
+        clabel (str, optional): colorbar label.
+        savefile (str | None, optional): if given (and ax_ is None) the figure
+            is written to this path. Defaults to None.
+
+    Returns:
+        matplotlib.axes.Axes: the axis the map was drawn into
+    """
+    standalone = ax_ is None
+    if standalone:
+        fig = plt.figure(figsize=(9, 7), constrained_layout=True)
+        ax_ = fig.add_subplot(1, 1, 1, projection=SYNOPTIC_PROJ["projection"])
+
+    ax_.set_extent(extent, crs=ccrs.PlateCarree())
+    ax_.add_feature(cartopy.feature.LAND, color="#d9d9d9", zorder=1)
+    ax_.add_feature(cartopy.feature.OCEAN, color="white", zorder=1)
+    # coastlines and borders are drawn on top of the shading
+    ax_.add_feature(cartopy.feature.COASTLINE, linewidth=0.5, zorder=5)
+    ax_.add_feature(cartopy.feature.BORDERS, linestyle="-", linewidth=0.3, zorder=5)
+    gl = ax_.gridlines(
+        crs=ccrs.PlateCarree(),
+        draw_labels=True,
+        linewidth=1,
+        color="gray",
+        alpha=0.5,
+        linestyle="--",
+        x_inline=False,
+        rotate_labels=False,
+    )
+    gl.top_labels = False
+    gl.right_labels = False
+    gl.xlocator = ticker.FixedLocator(np.arange(-20, 61, 10))
+    gl.ylocator = ticker.FixedLocator(np.arange(30, 61, 5))
+
+    # total column water vapour as shading, values below the lowest level stay
+    # unfilled so that the land/ocean background remains visible
+    cmap_tcwv = plt.cm.BuGn
+    bounds_tcwv = np.arange(20, 41, 2)
+    norm_tcwv = mpl.colors.BoundaryNorm(bounds_tcwv, cmap_tcwv.N, extend="max")
+    cf = ax_.contourf(
+        xda_tcwv["longitude"],
+        xda_tcwv["latitude"],
+        xda_tcwv,
+        levels=bounds_tcwv,
+        cmap=cmap_tcwv,
+        norm=norm_tcwv,
+        extend="max",
+        transform=ccrs.PlateCarree(),
+        zorder=2,
+    )
+
+    # geopotential height at 500 hPa as contour lines
+    gph = xda_z500 / 9.80665
+    cs = ax_.contour(
+        gph["longitude"],
+        gph["latitude"],
+        gph,
+        levels=np.arange(4800, 6041, 40),
+        colors="k",
+        linewidths=0.8,
+        transform=ccrs.PlateCarree(),
+        zorder=3,
+    )
+    ax_.clabel(cs, inline=True, fontsize="small", fmt="%.0f")
+
+    # highlight the area of interest
+    geom_austria = get_country_geometry("Austria")
+    if geom_austria is not None:
+        ax_.add_geometries(
+            [geom_austria],
+            crs=ccrs.PlateCarree(),
+            facecolor="none",
+            edgecolor="red",
+            linewidth=1.5,
+            zorder=10,
+        )
+
+    # white backdrop so the colorbar stays legible on top of the shading
+    ax_.add_patch(
+        mpl.patches.Rectangle(
+            (0.0, 0.0),
+            0.49,
+            0.15,
+            transform=ax_.transAxes,
+            facecolor="white",
+            edgecolor="k",
+            zorder=15,
+        )
+    )
+    cax = inset_axes(
+        ax_,
+        width="45%",
+        height="4%",
+        loc="lower left",
+        bbox_to_anchor=(0.015, 0.07, 1, 1),
+        bbox_transform=ax_.transAxes,
+    )
+    cbar = plt.colorbar(
+        cf,
+        cax=cax,
+        orientation="horizontal",
+        label=clabel,
+        ticks=bounds_tcwv,
+    )
+    cbar.ax.tick_params(labelsize="small")
+    cbar.set_label(clabel, size="small")
+
+    ax_.text(
+        0.991,
+        0.987,
+        date_label,
+        transform=ax_.transAxes,
+        fontsize="large",
+        va="top",
+        ha="right",
+        zorder=20,
+        bbox={"facecolor": "w", "pad": 5},
+    )
+    ax_.set_title(titlestr)
+    if subplotnum is not None:
+        ax_.text(
+            0,
+            1,
+            subplotnum,
+            transform=ax_.transAxes,
+            fontsize="x-large",
+            fontweight="bold",
+            va="top",
+            ha="left",
+            clip_on=True,
+            zorder=20,
+            bbox={"facecolor": "w", "pad": 5},
+        )
+
+    if standalone and savefile is not None:
+        plt.savefig(savefile, bbox_inches="tight", dpi=300)
+        plt.close()
+    return ax_
+
+
+def match_axes_height(
+    ax_target: matplotlib.axes.Axes, ax_ref: matplotlib.axes.Axes
+) -> None:
+    """Crop the y-extent of a map axis so it is rendered with the same height
+    as a reference map axis.
+
+    Both axes keep a fixed data aspect and fill the same column width, so equal
+    height means an equal ratio of projected y- to x-extent. Only the y-limits
+    are changed, i.e. the map is cropped and not distorted.
+
+    Args:
+        ax_target (matplotlib.axes.Axes): axis that is cropped
+        ax_ref (matplotlib.axes.Axes): axis whose height is matched
+    """
+    x0_ref, x1_ref = ax_ref.get_xlim()
+    y0_ref, y1_ref = ax_ref.get_ylim()
+    ratio_ref = abs(y1_ref - y0_ref) / abs(x1_ref - x0_ref)
+    x0, x1 = ax_target.get_xlim()
+    y0, y1 = ax_target.get_ylim()
+    height = abs(x1 - x0) * ratio_ref
+    ymid = 0.5 * (y0 + y1)
+    ax_target.set_ylim(ymid - height / 2, ymid + height / 2)
+
+
 def plt_composite_maps(
     xda_rx5day_2024: xr.DataArray,
     percentage_2024_vs_clim: xr.DataArray,
     titlestr_1: str = "Rx5day 2024",
     titlestr_2: str = "Deviation for Rx5day in 2024 from historic Rx5day (1961–2023)",
     savefile: str = "test.png",
+    clabel_1: str = "Rx5day [mm]",
+    clabel_2: str = "Deviation [%]",
+    synoptic: dict | None = None,
+    logpath: Path | None = None,
 ) -> None:
     # projection for EPSG:3416
     cartopy_proj = {
@@ -245,10 +500,19 @@ def plt_composite_maps(
     else:
         sparta_cmap, sparta_norm = spartacus_RR_mon
 
-    fig = plt.figure(figsize=(18, 7), constrained_layout=True)
-    gs = fig.add_gridspec(ncols=2)
-    ax_left = fig.add_subplot(gs[0], **cartopy_proj)
-    ax_right = fig.add_subplot(gs[1], **cartopy_proj)
+    # the synoptic overview is prepended as an additional first panel
+    ncols = 3 if synoptic is not None else 2
+    fig = plt.figure(figsize=(9 * ncols, 7), constrained_layout=True)
+    gs = fig.add_gridspec(ncols=ncols)
+    col_offset = 0
+    subplotnums = ["a)", "b)"]
+    if synoptic is not None:
+        ax_synop = fig.add_subplot(gs[0], **SYNOPTIC_PROJ)
+        plt_synoptic_map(ax_=ax_synop, subplotnum="a)", **synoptic)
+        col_offset = 1
+        subplotnums = ["b)", "c)"]
+    ax_left = fig.add_subplot(gs[col_offset], **cartopy_proj)
+    ax_right = fig.add_subplot(gs[col_offset + 1], **cartopy_proj)
 
     # discretize cmaps
     cmap1 = plt.cm.Blues
@@ -258,7 +522,7 @@ def plt_composite_maps(
         cmaplist1[5:],
         cmap1.N,
     )
-    bounds1 = np.linspace(100, 250, 7)
+    bounds1 = np.linspace(0, 150, 7)
     norm1 = mpl.colors.BoundaryNorm(bounds1, cmap1.N, extend="both")
 
     axes = [ax_left, ax_right]
@@ -276,14 +540,14 @@ def plt_composite_maps(
         zip(
             iter(axes),
             [xda_rx5day_2024, percentage_2024_vs_clim],
-            ["a)", "b)"],
+            subplotnums,
             [
                 titlestr_1,
                 titlestr_2,
             ],
             [
-                "Rx5day [mm]",
-                "Deviation [%]",
+                clabel_1,
+                clabel_2,
             ],
             [
                 "horizontal",
@@ -390,15 +654,15 @@ def plt_composite_maps(
                 "#" * 30,
                 "Percentage of grid cells with an increase in Rx5day over historical max:",
                 titlestr_1,
-                f"Any increase (any new records): {stats_increase(xdaiter, 100)} %",
-                f"More than 1.5 times the hist max: {stats_increase(xdaiter, 150)} %",
-                f"More than double the hist max: {stats_increase(xdaiter, 200)} %",
-                f"Grid cell with max % increase: {round(float(xdaiter.max().values - 100), 2)} %",
+                f"Any increase (any new records): {stats_increase(xdaiter, 0)} %",
+                f"More than 1.5 times the hist max: {stats_increase(xdaiter, 50)} %",
+                f"More than double the hist max: {stats_increase(xdaiter, 100)} %",
+                f"Grid cell with max % increase: {round(float(xdaiter.max().values), 2)} %",
                 "#" * 30,
             ]
             area_affected_str = "\n".join(area_affected_list) + "\n"
             print(area_affected_str)
-            with open(arealogpath, "a") as file:
+            with open(logpath if logpath is not None else arealogpath, "a") as file:
                 file.write(area_affected_str)
 
         ax.set_title(titlestr)
@@ -415,9 +679,11 @@ def plt_composite_maps(
             clip_on=True,
             bbox={"facecolor": "w", "pad": 5},
         )
+    if synoptic is not None:
+        # crop the synoptic map to the height of the precipitation panels
+        match_axes_height(ax_synop, ax_left)
     plt.savefig(savefile, bbox_inches="tight", dpi=300)
     plt.close()
-    return None
 
 
 def plot_timeseries(
@@ -516,7 +782,72 @@ def plot_timeseries(
     plt.subplots_adjust(wspace=0.05)
     plt.suptitle("Rx5day: Maximum annual 5-day precipitation totals")
     plt.savefig("doc/fig2.png", bbox_inches="tight", dpi=300)
-    return None
+
+
+def calc_percentage_change(xda1, ref):
+    percentage_change = 100 * (xda1 - ref) / ref
+    return percentage_change
+
+
+def get_experiment_paths(config, data_dir: Path) -> SimpleNamespace:
+    """Resolve input files, log file, variable name and output dir for the
+    currently active experiment in the config.
+
+    Args:
+        config: config namespace as returned by get_config()
+        data_dir (Path): base directory of the SPARTACUS data
+
+    Returns:
+        SimpleNamespace: rx5_file, event_file, arealogpath, varname, outpath
+    """
+    if config.EXPERIMENT.SPARTAV21RRhr:
+        paths = config.PATHS.SPARTAV21RRhr
+        varname = "RRhr"
+        outdir = "sparta_v2.1_RRhr"
+    elif config.EXPERIMENT.SPARTAV3RR:
+        paths = config.PATHS.SPARTAV3RR
+        varname = "RR"
+        outdir = "sparta_v3_RR"
+    elif config.EXPERIMENT.SPARTAV3RRhr:
+        paths = config.PATHS.SPARTAV3RRhr
+        varname = "RRhr"
+        outdir = "sparta_v3_RRhr"
+    else:
+        raise ValueError("No experiment enabled in [EXPERIMENT] section of config.")
+    return SimpleNamespace(
+        rx5_file=Path(data_dir, paths.FILE_RX5DAY),
+        event_file=Path(data_dir, paths.FILE_EVENT_RRhr),
+        arealogpath=Path(paths.LOGAREA),
+        varname=varname,
+        outpath=Path("doc", outdir),
+    )
+
+
+def load_composite_fields(
+    config, data_dir: Path, epsg: str
+) -> tuple[xr.DataArray, xr.DataArray]:
+    """Load the 2024 event totals and their deviation from the historic Rx5day
+    maximum for the active experiment.
+
+    Args:
+        config: config namespace as returned by get_config()
+        data_dir (Path): base directory of the SPARTACUS data
+        epsg (str): EPSG code written to the data arrays
+
+    Returns:
+        tuple[xr.DataArray, xr.DataArray]: event totals 2024, deviation in %
+    """
+    exp = get_experiment_paths(config, data_dir)
+    histmax = (
+        xr.open_dataarray(exp.rx5_file)
+        .sel(
+            time=slice(str(config.GENERAL.YEAR_START), str(config.GENERAL.YEAR_END - 1))
+        )
+        .max(dim="time")
+        .rio.write_crs(epsg)
+    )
+    event_2024 = xr.open_dataset(exp.event_file)[exp.varname].rio.write_crs(epsg)
+    return event_2024, calc_percentage_change(event_2024, histmax)
 
 
 if __name__ == "__main__":
@@ -525,18 +856,40 @@ if __name__ == "__main__":
     configure_font()
     data_dir = Path(config.PATHS.DAT_DIR)
 
+    if config.PLOT.PREPROCESS:
+        # extract event precip from spartacus
+        rrhr2024 = xr.open_dataset(
+            Path(data_dir, config.PATHS.FILE_SPARTA_RRhr_2024)
+        ).sel(time=slice("2024-09-12", "2024-09-16"))["RRhr"]
+        event_5day_totals = rrhr2024.sum(dim="time")
+        event_5day_totals = event_5day_totals.where(
+            rrhr2024.isel(time=0).notnull(), np.nan
+        )
+        event_5day_totals.rio.write_crs(epsg).to_netcdf(
+            Path(data_dir, config.PATHS.FILE_EVENT_RRhr)
+        )
+
     if config.PLOT.COMPOSITE:
         year_start = config.GENERAL.YEAR_START
         year_end = config.GENERAL.YEAR_END
-        rx5_sparta_file = Path(data_dir, config.PATHS.FILE_RX5DAY)
-        arealogpath = Path(config.PATHS.LOGAREA)
+
+        experiment = get_experiment_paths(config, data_dir)
+        rx5_sparta_file = experiment.rx5_file
+        event_5day_totals = experiment.event_file
+        arealogpath = experiment.arealogpath
+        varname = experiment.varname
+        outpath = experiment.outpath
+
+        outpath.mkdir(parents=True, exist_ok=True)
+        Path(outpath, "suppl").mkdir(parents=True, exist_ok=True)
 
         rx5_sparta = xr.open_dataarray(rx5_sparta_file)
         histmax = rx5_sparta.sel(time=slice(str(year_start), str(year_end - 1))).max(
             dim="time"
         )
         histmax = histmax.rio.write_crs(epsg)
-        rx5_2024 = rx5_sparta.sel(time=f"{year_end}-01-01")
+        # rx5_2024 = rx5_sparta.sel(time=f"{year_end}-01-01")
+        rx5_2024 = xr.open_dataset(event_5day_totals)[varname]
         rx5_2024 = rx5_2024.rio.write_crs(epsg)
 
         if arealogpath.exists():
@@ -544,11 +897,14 @@ if __name__ == "__main__":
         else:
             arealogpath.touch()
 
-        percentage_vs_histmax = 100 / histmax * rx5_2024
+        percentage_vs_histmax = calc_percentage_change(rx5_2024, histmax)
         plt_composite_maps(
             xda_rx5day_2024=rx5_2024,
             percentage_2024_vs_clim=percentage_vs_histmax,
-            savefile="doc/fig1.png",
+            savefile=f"{outpath}/fig1.png",
+            titlestr_1="Event total precipitation (12–16 September 2024)",
+            titlestr_2="Deviation for event total precipitation in 2024 from historic Rx5day (1961–2023)",
+            clabel_1="Total precipitation [mm]",
         )
 
         ## check area % increases for major summer floods: 1997, 2002, 2005, 2013
@@ -558,13 +914,13 @@ if __name__ == "__main__":
                 time=slice(str(year_start), str(year_iter - 1))
             ).max(dim="time")
             rx5_flood = rx5_sparta.sel(time=str(year_iter))
-            percentage_flood = 100 / past_histmax * rx5_flood
+            percentage_flood = calc_percentage_change(rx5_flood, past_histmax)
             plt_composite_maps(
                 xda_rx5day_2024=rx5_flood,
                 percentage_2024_vs_clim=percentage_flood,
                 titlestr_1=f"Rx5day {year_iter}",
                 titlestr_2=f"Deviation for Rx5day in {year_iter} from historic Rx5day (1961–{year_iter - 1})",
-                savefile=f"doc/suppl/fig_suppl_flood_{year_iter}.png",
+                savefile=f"{outpath}/suppl/fig_suppl_flood_{year_iter}.png",
             )
 
     if config.PLOT.TIMESERIES:
@@ -652,3 +1008,46 @@ if __name__ == "__main__":
         ]
 
         plot_timeseries(rx5day_year, dfexceedances, dfrl, dfmo, cols=station_plots)
+
+    if config.PLOT.COMPOSITE_V2:
+        synop_date = config.SYNOPTIC.DATE
+        synop_extent = list(config.SYNOPTIC.EXTENT)
+        xda_z500 = load_era5_field(
+            config.PATHS.ERA5.FILE_Z500, "z", synop_date, synop_extent
+        )
+        xda_tcwv = load_era5_field(
+            config.PATHS.ERA5.FILE_TCWV, "tcwv", synop_date, synop_extent
+        )
+        synop_kwargs = {
+            "xda_z500": xda_z500,
+            "xda_tcwv": xda_tcwv,
+            "extent": synop_extent,
+            "date_label": synop_date,
+            "titlestr": (
+                "500 hPa geopotential height [gpm] and total column water vapour [kg m$^{-2}$]"
+            ),
+        }
+
+        Path("doc").mkdir(parents=True, exist_ok=True)
+        # standalone synoptic overview
+        plt_synoptic_map(**synop_kwargs, savefile="doc/fig1-synop.png")
+
+        # composite as baseline, with the synoptic overview as first panel
+        rx5_2024_v2, percentage_vs_histmax_v2 = load_composite_fields(
+            config, data_dir, epsg
+        )
+        logpath_v2 = Path("doc", "area_affected_fig1-v2.log")
+        if logpath_v2.exists():
+            logpath_v2.unlink()
+        else:
+            logpath_v2.touch()
+        plt_composite_maps(
+            xda_rx5day_2024=rx5_2024_v2,
+            percentage_2024_vs_clim=percentage_vs_histmax_v2,
+            savefile="doc/fig1-v2.png",
+            titlestr_1="Event total precipitation (12–16 September 2024)",
+            titlestr_2="Deviation for event total precipitation in 2024 from historic Rx5day (1961–2023)",
+            clabel_1="Total precipitation [mm]",
+            synoptic=synop_kwargs,
+            logpath=logpath_v2,
+        )
