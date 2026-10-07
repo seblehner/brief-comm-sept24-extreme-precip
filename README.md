@@ -35,15 +35,15 @@ Data sourced from:
 
 - All source data are precipitation totals with the unit $\left[\text{mm}\cdot\text{day}^{-1}\right]$, or equivalently $\left[\text{kg}\cdot\text{m}^{-2}\cdot\text{day}^{-1}\right]$
 - Station data (TAWES):
-    - https://doi.org/10.60669/gs6w-jd70
+    - Dataset: https://doi.org/10.60669/gs6w-jd70
     - Station IDs:
     - `[5625,5601,5604,5606,5607,5609,4080,4081,7110,10510,10511,6540,5410,5412,7000,7001,7002,1730,3520]`
     - Note that some stations have multiple IDs due to being slightly relocated over time. The latest ID is used for indexing.
 - Gridded data (SPARTACUS):
-    - Reference paper: https://doi.org/10.1007/s00704-017-2093-x,
-    - https://doi.org/10.60669/5cqg-p427
+    - Reference paper: https://doi.org/10.1007/s00704-017-2093-x
+    - Dataset: https://doi.org/10.60669/5cqg-p427
 - Persistent archive for processed data:
-    - https://doi.org/10.5281/zenodo.19346127
+    - Dataset: https://doi.org/10.5281/zenodo.19346127
 
 Processed data within this repository:
 
